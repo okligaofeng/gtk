@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<interface>
+  <!-- interface-requires gtk+ 3.6 -->
+  <object class="GtkWindow" id="window">
+    <property name="default-width">640</property>
+    <property name="default-height">480</property>
+    <child type="titlebar">
+      <object class="GtkHeaderBar">
+        <property name="title" translatable="yes">Shadertoy</property>
+        <child>
+          <object class="GtkButton" id="run">
+            <property name="icon-name">media-playback-start-symbolic</property>
+          </object>
+        </child>
+      </object>
+    </child>
+    <child>
+      <object class="GtkPaned" id="content">
+        <property name="orientation">vertical</property>
+        <property name="position">240</property>
+        <child>
+          <object class="GtkScrolledWindow">
+            <property name="expand">1</property>
+            <child>
+              <object class="GtkTextView" id="text">
+                <property name="buffer">buffer</property>
+              </object>
+            </child>
+          </object>
+        </child>
+      </object>
+    </child>
+  </object>
+  <object class="GtkTextBuffer" id="buffer">
+    <property name="text">#version 420 core
+
+layout(location = 0) in vec2 inPos;
+layout(location = 1) in float inTime;
+
+layout(location = 0) out vec4 color;
+
+void main()
+{
+  color = vec4(1, sin(inTime), cos(inTime), 0.5);
+}
+</property>
+  </object>
+</interface>
