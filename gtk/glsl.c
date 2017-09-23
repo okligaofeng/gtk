@@ -40,7 +40,8 @@ bytes_new_from_file (const char  *filename,
 }
 
 static gboolean
-compile (GOutputStream *output,
+compile (GskSlCompiler *compiler,
+         GOutputStream *output,
          const char    *filename)
 {
   GBytes *bytes;
@@ -55,7 +56,7 @@ compile (GOutputStream *output,
       return FALSE;
     }
 
-  program = gsk_sl_program_new (bytes, NULL);
+  program = gsk_sl_compiler_compile (compiler, bytes);
   g_bytes_unref (bytes);
   if (program == NULL)
     return FALSE;
@@ -77,7 +78,8 @@ compile (GOutputStream *output,
 }
 
 static gboolean
-dump (GOutputStream *output,
+dump (GskSlCompiler *compiler,
+      GOutputStream *output,
       const char    *filename)
 {
   GBytes *bytes;
@@ -93,7 +95,7 @@ dump (GOutputStream *output,
       return FALSE;
     }
 
-  program = gsk_sl_program_new (bytes, NULL);
+  program = gsk_sl_compiler_compile (compiler, bytes);
   g_bytes_unref (bytes);
   if (program == NULL)
     return FALSE;
@@ -132,6 +134,7 @@ main (int argc, char *argv[])
   char **filenames = NULL;
   char *output_file = NULL;
   gboolean print = FALSE;
+  GskSlCompiler *compiler;
   const GOptionEntry entries[] = {
     { "print", 'p', 0, G_OPTION_ARG_NONE, &print, "Print instead of compiling", NULL },
     { "output", 'o', 0, G_OPTION_ARG_FILENAME, &output_file, "Output filename", "FILE" },
@@ -147,6 +150,7 @@ main (int argc, char *argv[])
 
   gtk_init ();
 
+  compiler = gsk_sl_compiler_new ();
   ctx = g_option_context_new (NULL);
   g_option_context_add_main_entries (ctx, entries, NULL);
 
@@ -186,9 +190,9 @@ main (int argc, char *argv[])
   for (i = 0; success && filenames[i] != NULL; i++)
     {
       if (print)
-        success = dump (output, filenames[i]);
+        success = dump (compiler, output, filenames[i]);
       else
-        success = compile (output, filenames[i]);
+        success = compile (compiler, output, filenames[i]);
     }
 
  if (!g_output_stream_close (output, NULL, &error))
@@ -198,6 +202,7 @@ main (int argc, char *argv[])
     success = FALSE;
   }
 
+  g_object_unref (compiler);
   g_strfreev (filenames);
 
   return success ? EXIT_SUCCESS : EXIT_FAILURE;
