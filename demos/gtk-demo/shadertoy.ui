@@ -7,6 +7,7 @@
     <child type="titlebar">
       <object class="GtkHeaderBar">
         <property name="title" translatable="yes">Shadertoy</property>
+        <property name="show-close-button">1</property>
         <child>
           <object class="GtkButton" id="run">
             <property name="icon-name">media-playback-start-symbolic</property>
@@ -24,6 +25,10 @@
             <child>
               <object class="GtkTextView" id="text">
                 <property name="buffer">buffer</property>
+                <property name="top-margin">10</property>
+                <property name="bottom-margin">10</property>
+                <property name="left-margin">10</property>
+                <property name="right-margin">10</property>
               </object>
             </child>
           </object>
