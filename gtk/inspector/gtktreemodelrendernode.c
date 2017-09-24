@@ -531,8 +531,14 @@ append_node (GtkTreeModelRenderNode *nodemodel,
     case GSK_BORDER_NODE:
     case GSK_INSET_SHADOW_NODE:
     case GSK_OUTSET_SHADOW_NODE:
-    case GSK_PIXEL_SHADER_NODE:
       /* no children */
+      break;
+
+    case GSK_PIXEL_SHADER_NODE:
+      if (gsk_pixel_shader_node_get_child1 (node))
+        append_node (nodemodel, gsk_pixel_shader_node_get_child1 (node), priv->nodes->len - 1);
+      if (gsk_pixel_shader_node_get_child2 (node))
+        append_node (nodemodel, gsk_pixel_shader_node_get_child2 (node), priv->nodes->len - 1);
       break;
 
     case GSK_TRANSFORM_NODE:
