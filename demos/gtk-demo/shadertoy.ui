@@ -9,8 +9,18 @@
         <property name="title" translatable="yes">Shadertoy</property>
         <property name="show-close-button">1</property>
         <child>
-          <object class="GtkButton" id="run">
+          <object class="GtkButton" id="rewind">
+            <property name="icon-name">media-skip-backward-symbolic</property>
+          </object>
+        </child>
+        <child>
+          <object class="GtkButton" id="play">
             <property name="icon-name">media-playback-start-symbolic</property>
+          </object>
+        </child>
+        <child>
+          <object class="GtkLabel" id="time">
+            <property name="margin-start">20</property>
           </object>
         </child>
       </object>
@@ -39,14 +49,22 @@
   <object class="GtkTextBuffer" id="buffer">
     <property name="text">#version 420 core
 
-layout(location = 0) in vec2 inPos;
-layout(location = 1) in float inTime;
+layout(location = 0) in vec2 iPos;
+layout(location = 1) in float iTime;
+layout(location = 2) in vec2 iResolution;
 
 layout(location = 0) out vec4 color;
 
+void
+mainImage (out vec4 fragColor, in vec2 fragCoord)
+{
+  vec2 uv = fragCoord.xy / iResolution.xy;
+  fragColor = vec4(uv,0.5+0.5*sin(iTime),1.0);
+}
+
 void main()
 {
-  color = vec4(1, sin(inTime), cos(inTime), 0.5);
+  mainImage (color, iPos);
 }
 </property>
   </object>

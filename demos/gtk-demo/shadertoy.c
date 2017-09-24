@@ -5,6 +5,13 @@
 
 #include <gtk/gtk.h>
 
+enum {
+  PROP_0,
+  PROP_TIME,
+  PROP_RUNNING,
+  N_PROPS
+};
+
 G_DECLARE_FINAL_TYPE (GtkShadertoy, gtk_shadertoy, GTK, SHADERTOY, GtkWidget)
 
 struct _GtkShadertoy {
@@ -13,8 +20,11 @@ struct _GtkShadertoy {
   GBytes *vertex_shader;
   GBytes *fragment_shader;
 
-  guint64 starttime;
   guint tick;
+  guint64 starttime;
+
+  float time;
+  float base;
 };
 
 G_DEFINE_TYPE (GtkShadertoy, gtk_shadertoy, GTK_TYPE_WIDGET);
@@ -36,7 +46,7 @@ gtk_shadertoy_snapshot (GtkWidget   *widget,
   bounds.size.width = alloc.width;
   bounds.size.height = alloc.height;
 
-  if (self->fragment_shader && self->tick)
+  if (self->fragment_shader)
     {
       gtk_snapshot_get_offset (snapshot, &offset_x, &offset_y);
       bounds.origin.x = offset_x;
@@ -66,14 +76,75 @@ gtk_shadertoy_finalize (GObject *object)
   G_OBJECT_CLASS (gtk_shadertoy_parent_class)->finalize (object);
 }
 
+
+static void
+gtk_shadertoy_get_property (GObject    *object,
+                            guint       prop_id,
+                            GValue     *value,
+                            GParamSpec *pspec)
+{
+  GtkShadertoy *self = GTK_SHADERTOY (object);
+
+  switch (prop_id)
+    {
+    case PROP_TIME:
+      g_value_set_float (value, self->time);
+      break;
+
+    case PROP_RUNNING:
+      g_value_set_boolean (value, self->tick != 0);
+      break;
+
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+    }
+}
+
+static void gtk_shadertoy_set_running (GtkShadertoy *self,
+                                       gboolean      running);
+static void gtk_shadertoy_reset_time (GtkShadertoy *self);
+
+static void
+gtk_shadertoy_set_property (GObject      *object,
+                            guint         prop_id,
+                            const GValue *value,
+                            GParamSpec   *pspec)
+{
+  GtkShadertoy *self = GTK_SHADERTOY (object);
+
+  switch (prop_id)
+    {
+    case PROP_RUNNING:
+      gtk_shadertoy_set_running (self, g_value_get_boolean (value));
+      break;
+
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+    }
+}
+
 static void
 gtk_shadertoy_class_init (GtkShadertoyClass *klass)
 {
+  GParamSpec *pspec;
+
   GObjectClass *object_class = G_OBJECT_CLASS (klass);
   GtkWidgetClass *widget_class = GTK_WIDGET_CLASS (klass);
 
   object_class->finalize = gtk_shadertoy_finalize;
+  object_class->get_property = gtk_shadertoy_get_property;
+  object_class->set_property = gtk_shadertoy_set_property;
   widget_class->snapshot = gtk_shadertoy_snapshot;
+
+  pspec = g_param_spec_float ("time", NULL, NULL,
+                              0.0, G_MAXFLOAT, 0.0,
+                              G_PARAM_READABLE);
+  g_object_class_install_property (object_class, PROP_TIME, pspec);
+
+  pspec = g_param_spec_boolean ("running", NULL, NULL,
+                                FALSE,
+                                G_PARAM_READWRITE);
+  g_object_class_install_property (object_class, PROP_RUNNING, pspec);
 }
 
 static void
@@ -115,28 +186,36 @@ gtk_shadertoy_set_fragment_shader (GtkShadertoy *self,
 static gboolean
 tick_cb (GtkWidget *widget, GdkFrameClock *clock, gpointer data)
 {
+  GtkShadertoy *self = GTK_SHADERTOY (widget);
+
+  self->time = self->base + (g_get_monotonic_time () - self->starttime) / 1000000.0;
+  g_object_notify (G_OBJECT (widget), "time");
+
   gtk_widget_queue_draw (widget);
   return G_SOURCE_CONTINUE;
 }
 
 static void
-gtk_shadertoy_start (GtkShadertoy *self)
+gtk_shadertoy_set_running (GtkShadertoy *self,
+                           gboolean      running)
 {
-  if (self->tick == 0)
+  if (running && self->tick == 0)
     {
-      self->starttime = g_get_monotonic_time ();
       self->tick = gtk_widget_add_tick_callback (GTK_WIDGET (self), tick_cb, NULL, NULL);
+      self->starttime = g_get_monotonic_time ();
+      self->time = 0;
     }
-}
-
-static void
-gtk_shadertoy_stop (GtkShadertoy *self)
-{
-  if (self->tick != 0)
+  else if (!running && self->tick != 0)
     {
       gtk_widget_remove_tick_callback (GTK_WIDGET (self), self->tick);
+      self->base += (g_get_monotonic_time () - self->starttime) / 1000000.0;
       self->tick = 0;
     }
+  else
+    return;
+
+  gtk_widget_queue_draw (GTK_WIDGET (self));
+  g_object_notify (G_OBJECT (self), "running");
 }
 
 static gboolean
@@ -145,10 +224,20 @@ gtk_shadertoy_is_running (GtkShadertoy *self)
   return self->tick != 0;
 }
 
+static void
+gtk_shadertoy_reset_time (GtkShadertoy *self)
+{
+  self->base = 0;
+  self->time = 0;
+  self->starttime = g_get_monotonic_time ();
+
+  gtk_widget_queue_draw (GTK_WIDGET (self));
+  g_object_notify (G_OBJECT (self), "time");
+}
+
 static GtkWidget *window = NULL;
 static GtkWidget *textview;
 static GtkWidget *toy;
-static GtkWidget *run;
 
 static const char *vert_text =
 "#version 420 core\n"
@@ -165,6 +254,7 @@ static const char *vert_text =
 "\n"
 "layout(location = 0) out vec2 outPos;\n"
 "layout(location = 1) out float outTime;\n"
+"layout(location = 2) out vec2 outResolution;\n"
 "\n"
 "out gl_PerVertex {\n"
 "  vec4 gl_Position;\n"
@@ -186,6 +276,7 @@ static const char *vert_text =
 "  gl_Position = push.mvp * vec4 (pos, 0.0, 1.0);\n"
 "  outPos = pos;\n"
 "  outTime = inTime;\n"
+"  outResolution = inRect.zw;\n"
 "}";
 
 static void
@@ -224,7 +315,7 @@ setup_vertex_shader (void)
 }
 
 static void
-run_cb (GtkButton *button)
+play_cb (GtkButton *button)
 {
   GtkTextBuffer *buffer;
   GtkTextIter start, end;
@@ -269,14 +360,34 @@ run_cb (GtkButton *button)
 
   if (gtk_shadertoy_is_running (GTK_SHADERTOY (toy)))
     {
-      gtk_shadertoy_stop (GTK_SHADERTOY (toy));
+      gtk_shadertoy_set_running (GTK_SHADERTOY (toy), FALSE);
       gtk_button_set_icon_name (button, "media-playback-start-symbolic");
     }
   else
     {
-      gtk_shadertoy_start (GTK_SHADERTOY (toy));
+      gtk_shadertoy_set_running (GTK_SHADERTOY (toy), TRUE);
       gtk_button_set_icon_name (button, "media-playback-stop-symbolic");
     }
+}
+
+static void
+rewind_cb (GtkButton *button)
+{
+  gtk_shadertoy_reset_time (GTK_SHADERTOY (toy));
+}
+
+static gboolean
+format_time (GBinding     *binding,
+             const GValue *from_value,
+             GValue       *to_value,
+             gpointer      data)
+{
+  char buffer[256];
+
+  g_snprintf (buffer, sizeof (buffer), "%.2f", g_value_get_float (from_value));
+  g_value_set_string (to_value, buffer);
+
+  return TRUE;
 }
 
 GtkWidget *
@@ -287,13 +398,18 @@ do_shadertoy (GtkWidget *do_widget)
     {
       GtkBuilder *builder;
       GtkWidget *content;
+      GtkWidget *rewind;
+      GtkWidget *play;
+      GtkWidget *time;
 
       builder = gtk_builder_new_from_resource ("/shadertoy/shadertoy.ui");
 
       window = GTK_WIDGET (gtk_builder_get_object (builder, "window"));
       content = GTK_WIDGET (gtk_builder_get_object (builder, "content"));
       textview = GTK_WIDGET (gtk_builder_get_object (builder, "text"));
-      run = GTK_WIDGET (gtk_builder_get_object (builder, "run"));
+      rewind = GTK_WIDGET (gtk_builder_get_object (builder, "rewind"));
+      play = GTK_WIDGET (gtk_builder_get_object (builder, "play"));
+      time = GTK_WIDGET (gtk_builder_get_object (builder, "time"));
 
       gtk_window_set_screen (GTK_WINDOW (window),
                              gtk_widget_get_screen (do_widget));
@@ -307,7 +423,15 @@ do_shadertoy (GtkWidget *do_widget)
       gtk_widget_set_vexpand (toy, TRUE);
       gtk_container_add (GTK_CONTAINER (content), toy);
 
-      g_signal_connect (run, "clicked", G_CALLBACK (run_cb), NULL);
+      g_signal_connect (play, "clicked", G_CALLBACK (play_cb), NULL);
+      g_signal_connect (rewind, "clicked", G_CALLBACK (rewind_cb), NULL);
+      g_object_bind_property_full (toy, "time",
+                                   time, "label",
+                                   G_BINDING_SYNC_CREATE,
+                                   format_time,
+                                   NULL,
+                                   NULL,
+                                   NULL);
 
       g_object_unref (builder);
     }
