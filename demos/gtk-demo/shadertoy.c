@@ -4,6 +4,8 @@
  */
 
 #include <gtk/gtk.h>
+#include <gtk/gtksnapshotprivate.h>
+#include <gtk/gtkwidgetprivate.h>
 
 enum {
   PROP_0,
@@ -20,6 +22,10 @@ struct _GtkShadertoy {
   GBytes *vertex_shader;
   GBytes *fragment_shader;
 
+  GtkWidget *child;
+  int child_x;
+  int child_y;
+
   guint tick;
   guint64 starttime;
 
@@ -35,39 +41,54 @@ gtk_shadertoy_snapshot (GtkWidget   *widget,
 {
   GtkShadertoy *self = GTK_SHADERTOY (widget);
   GdkRGBA white = { 1, 1, 1, 1 };
-  GdkRGBA purple = { 1, 0, 1, 1 };
+  //GdkRGBA purple = { 1, 0, 1, 1 };
   GdkRGBA green = { 0, 1, 0, 1 };
   GtkAllocation alloc;
   graphene_rect_t bounds;
   int offset_x, offset_y;
   float time = (float)(g_get_monotonic_time () - self->starttime)/1000000.0;
+  GskRenderNode *node, *child1, *child2;
+  GtkAllocation child_alloc;
+  GtkSnapshot child_snapshot;
 
+
+  if (!self->fragment_shader)
+    {
+       GTK_WIDGET_CLASS (gtk_shadertoy_parent_class)->snapshot (widget, snapshot);
+       return;
+    }
+
+  gtk_snapshot_get_offset (snapshot, &offset_x, &offset_y);
   gtk_widget_get_allocation (widget, &alloc);
-  bounds.origin.x = 0;
-  bounds.origin.y = 0;
+
+  bounds.origin.x = offset_x;
+  bounds.origin.y = offset_y;
   bounds.size.width = alloc.width;
   bounds.size.height = alloc.height;
 
-  if (self->fragment_shader)
-    {
-      GskRenderNode *node, *child1, *child2;
+  gtk_widget_get_allocation (self->child, &child_alloc);
 
-      gtk_snapshot_get_offset (snapshot, &offset_x, &offset_y);
-      bounds.origin.x = offset_x;
-      bounds.origin.y = offset_y;
+  gtk_snapshot_init (&child_snapshot,
+                     gtk_snapshot_get_renderer (snapshot),
+                     snapshot->record_names,
+                     NULL,
+                     "shadertoy child");
+  gtk_snapshot_offset (&child_snapshot, offset_x + child_alloc.x, offset_y + child_alloc.y);
+  gtk_widget_snapshot (self->child, &child_snapshot);
+  gtk_snapshot_offset (&child_snapshot, - offset_x - child_alloc.x, - offset_y - child_alloc.y);
+  child1 = gtk_snapshot_finish (&child_snapshot);
 
-      child1 = gsk_color_node_new (&purple, &GRAPHENE_RECT_INIT (offset_x + 20, offset_y + 20, 80, 40));
-      child2 = gsk_color_node_new (&green, &GRAPHENE_RECT_INIT (offset_x + 40, offset_y + 80, 40, 80));
-      node = gsk_pixel_shader_node_new (&bounds,
-                                        child1, child2,
-                                        self->vertex_shader,
-                                        self->fragment_shader,
-                                        time);
-      gsk_render_node_set_name (node, "shader");
-      gtk_snapshot_append_node (snapshot, node);
-    }
-  else
-    gtk_snapshot_append_color (snapshot, &white, &bounds, "no shader");
+  //child1 = gsk_color_node_new (&purple, &GRAPHENE_RECT_INIT (offset_x + 20, offset_y + 20, 80, 40));
+  child2 = gsk_color_node_new (&green, &GRAPHENE_RECT_INIT (offset_x + 40, offset_y + 80, 40, 80));
+  node = gsk_pixel_shader_node_new (&bounds,
+                                    child1, child2,
+                                    self->vertex_shader,
+                                    self->fragment_shader,
+                                    time);
+  gsk_render_node_set_name (node, "shader");
+  gtk_snapshot_append_node (snapshot, node);
+  gsk_render_node_unref (child1);
+  gsk_render_node_unref (child2);
 }
 
 
@@ -132,6 +153,54 @@ gtk_shadertoy_set_property (GObject      *object,
 }
 
 static void
+gtk_shadertoy_measure (GtkWidget      *widget,
+                   GtkOrientation  orientation,
+                   int             for_size,
+                   int            *minimum,
+                   int            *natural,
+                   int            *minimum_baseline,
+                   int            *natural_baseline)
+{
+  GtkShadertoy *self = GTK_SHADERTOY (widget);
+  gint child_min, child_nat;
+
+  *minimum = 0;
+  *natural = 0;
+
+   gtk_widget_measure (self->child, orientation, -1, &child_min, &child_nat, NULL, NULL);
+
+   if (orientation == GTK_ORIENTATION_HORIZONTAL)
+     {
+       *minimum = MAX (*minimum, self->child_x + child_min);
+       *natural = MAX (*natural, self->child_x + child_nat);
+     }
+   else /* VERTICAL */
+     {
+       *minimum = MAX (*minimum, self->child_y + child_min);
+       *natural = MAX (*natural, self->child_y + child_nat);
+     }
+}
+
+static void
+gtk_shadertoy_size_allocate (GtkWidget           *widget,
+                         const GtkAllocation *allocation,
+                         int                  baseline,
+                         GtkAllocation       *out_clip)
+{
+  GtkShadertoy *self = GTK_SHADERTOY (widget);
+  GtkAllocation child_allocation;
+  GtkRequisition child_requisition;
+
+  gtk_widget_get_preferred_size (self->child, &child_requisition, NULL);
+  child_allocation.x = self->child_x;
+  child_allocation.y = self->child_y;
+
+  child_allocation.width = child_requisition.width;
+  child_allocation.height = child_requisition.height;
+  gtk_widget_size_allocate (self->child, &child_allocation, -1, out_clip);
+}
+
+static void
 gtk_shadertoy_class_init (GtkShadertoyClass *klass)
 {
   GParamSpec *pspec;
@@ -143,6 +212,8 @@ gtk_shadertoy_class_init (GtkShadertoyClass *klass)
   object_class->get_property = gtk_shadertoy_get_property;
   object_class->set_property = gtk_shadertoy_set_property;
   widget_class->snapshot = gtk_shadertoy_snapshot;
+  widget_class->measure = gtk_shadertoy_measure;
+  widget_class->size_allocate = gtk_shadertoy_size_allocate;
 
   pspec = g_param_spec_float ("time", NULL, NULL,
                               0.0, G_MAXFLOAT, 0.0,
@@ -159,6 +230,10 @@ static void
 gtk_shadertoy_init (GtkShadertoy *self)
 {
   gtk_widget_set_has_window (GTK_WIDGET (self), FALSE);
+
+  self->child = gtk_entry_new ();
+  self->child_x = self->child_y = 20;
+  gtk_widget_set_parent (self->child, GTK_WIDGET (self));
 }
 
 static GtkWidget *
@@ -320,7 +395,7 @@ static const char *frag_text =
 "mainImage (out vec4 fragColor, in vec2 fragCoord)\n"
 "{\n"
 "  vec2 uv = fragCoord.xy / iResolution.xy;\n"
-"  fragColor = vec4(uv,0.5+0.5*sin(iTime), 1.0)*texture(iTexture1,iTexCoord1);\n"
+"  fragColor = texture(iTexture1,iTexCoord1*(0.3*sin(iTime) + 0.5));\n"
 "}\n"
 "\n"
 "void main()\n"
