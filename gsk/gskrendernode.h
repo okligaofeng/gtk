@@ -192,6 +192,11 @@ GskRenderNode *         gsk_pixel_shader_node_new               (const graphene_
                                                                  GBytes                 *vertex_bytes,
                                                                  GBytes                 *fragement_bytes,
                                                                  float                   time);
+GDK_AVAILABLE_IN_3_92
+GskRenderNode          *gsk_pixel_shader_node_get_child1        (GskRenderNode *node);
+GDK_AVAILABLE_IN_3_92
+GskRenderNode          *gsk_pixel_shader_node_get_child2         (GskRenderNode *node);
+
 
 GDK_AVAILABLE_IN_3_90
 void                    gsk_render_node_set_scaling_filters     (GskRenderNode *node,

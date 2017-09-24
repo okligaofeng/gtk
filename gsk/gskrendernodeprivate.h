@@ -113,8 +113,6 @@ double gsk_blur_node_get_radius (GskRenderNode *node);
 GBytes * gsk_pixel_shader_node_get_vertex_bytes (GskRenderNode *node);
 GBytes * gsk_pixel_shader_node_get_fragment_bytes (GskRenderNode *node);
 float    gsk_pixel_shader_node_get_time (GskRenderNode *node);
-GskRenderNode *gsk_pixel_shader_node_get_child1     (GskRenderNode *node);
-GskRenderNode *gsk_pixel_shader_node_get_child2     (GskRenderNode *node);
 
 G_END_DECLS
 
