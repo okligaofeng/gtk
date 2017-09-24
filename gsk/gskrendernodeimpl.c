@@ -4372,6 +4372,9 @@ struct _GskPixelShaderNode
   GBytes *fragment_bytes;
 
   float time;
+
+  GskRenderNode *child1;
+  GskRenderNode *child2;
 };
 
 static void
@@ -4381,28 +4384,53 @@ gsk_pixel_shader_node_finalize (GskRenderNode *node)
 
   g_bytes_unref (self->vertex_bytes);
   g_bytes_unref (self->fragment_bytes);
+
+  if (self->child1)
+    gsk_render_node_unref (self->child1);
+  if (self->child2)
+    gsk_render_node_unref (self->child2);
 }
 
 static void
 gsk_pixel_shader_node_draw (GskRenderNode *node,
                             cairo_t       *cr)
 {
+  GskPixelShaderNode *self = (GskPixelShaderNode *) node;
+
   cairo_save (cr);
   cairo_set_source_rgb (cr, 1, 0, 0);
   cairo_paint (cr);
   cairo_restore (cr);
+
+  if (self->child1)
+    gsk_render_node_draw (self->child1, cr);
+  if (self->child2)
+    gsk_render_node_draw (self->child2, cr);
 }
 
-#define GSK_PIXEL_SHADER_NODE_VARIANT_TYPE "(ddddayayd)"
+#define GSK_PIXEL_SHADER_NODE_VARIANT_TYPE "(dddda(uv)ayayd)"
 
 static GVariant *
 gsk_pixel_shader_node_serialize (GskRenderNode *node)
 {
   GskPixelShaderNode *self = (GskPixelShaderNode *) node;
+  GVariantBuilder builder;
 
-  return g_variant_new ("(dddd@ay@ayd)",
+  g_variant_builder_init (&builder, G_VARIANT_TYPE (GSK_CONTAINER_NODE_VARIANT_TYPE));
+
+  if (self->child1)
+    g_variant_builder_add (&builder, "(uv)",
+                           (guint32) gsk_render_node_get_node_type (self->child1),
+                           gsk_render_node_serialize_node (self->child1));
+  if (self->child2)
+    g_variant_builder_add (&builder, "(uv)",
+                           (guint32) gsk_render_node_get_node_type (self->child2),
+                           gsk_render_node_serialize_node (self->child2));
+
+  return g_variant_new ("(dddd@ay@ayda(uv))",
                         (double) node->bounds.origin.x, (double) node->bounds.origin.y,
                         (double) node->bounds.size.width, (double) node->bounds.size.height,
+                         &builder,
                          g_variant_new_fixed_array (G_VARIANT_TYPE ("y"),
                                                     g_bytes_get_data (self->vertex_bytes, NULL),
                                                     g_bytes_get_size (self->vertex_bytes), 1),
@@ -4425,10 +4453,37 @@ gsk_pixel_shader_node_deserialize (GVariant  *variant,
   GBytes *vertex_bytes;
   GBytes *fragment_bytes;
   GskRenderNode *node;
+  GVariantIter *iter;
+  gsize i, n_children;
+  guint32 child_type;
+  GVariant *child_variant;
+  GskRenderNode *children[2] = { NULL, NULL };
 
-  g_variant_get (variant, "(dddd@ay@ay)",
+  if (!check_variant_type (variant, GSK_PIXEL_SHADER_NODE_VARIANT_TYPE, error))
+    return NULL;
+
+  g_variant_get (variant, "(dddda(uv)@ay@ay)",
                  &bounds[0], &bounds[1], &bounds[2], &bounds[3],
-                 &vertex_variant, &fragment_variant, &time);
+                 &iter, &vertex_variant, &fragment_variant, &time);
+
+  n_children = g_variant_iter_init (iter, variant);
+  if (n_children > 2)
+    return NULL;
+
+  i = 0;
+  while (g_variant_iter_loop (iter, "(uv)", &child_type, &child_variant))
+    {
+      children[i] = gsk_render_node_deserialize_node (child_type, child_variant, error);
+      if (children[i] == NULL)
+        {
+          guint j;
+          for (j = 0; j < i; j++)
+            gsk_render_node_unref (children[j]);
+          g_variant_unref (child_variant);
+          return NULL;
+        }
+      i++;
+    }
 
   /* XXX: Make this work without copying the data */
   data = g_variant_get_fixed_array (vertex_variant, &length, 1);
@@ -4438,7 +4493,13 @@ gsk_pixel_shader_node_deserialize (GVariant  *variant,
   fragment_bytes = g_bytes_new (data, length);
 
   node = gsk_pixel_shader_node_new (&GRAPHENE_RECT_INIT(bounds[0], bounds[1], bounds[2], bounds[3]),
+                                    children[0], children[1],
                                     vertex_bytes, fragment_bytes, time);
+
+  if (children[0])
+    gsk_render_node_unref (children[0]);
+  if (children[1])
+    gsk_render_node_unref (children[1]);
 
   g_bytes_unref (vertex_bytes);
   g_bytes_unref (fragment_bytes);
@@ -4459,16 +4520,30 @@ static const GskRenderNodeClass GSK_PIXEL_SHADER_NODE_CLASS = {
 };
 
 GskRenderNode *
-gsk_pixel_shader_node_new (const graphene_rect_t *bounds,
-                           GBytes                *vertex_bytes,
-                           GBytes                *fragment_bytes,
-                           float                  time)
+gsk_pixel_shader_node_new (const graphene_rect_t  *bounds,
+                           GskRenderNode          *child1,
+                           GskRenderNode          *child2,
+                           GBytes                 *vertex_bytes,
+                           GBytes                 *fragment_bytes,
+                           float                   time)
 {
   GskPixelShaderNode *self;
+  guint i;
 
   self = (GskPixelShaderNode *) gsk_render_node_new (&GSK_PIXEL_SHADER_NODE_CLASS, 0);
 
+  if (child1)
+    self->child1 = gsk_render_node_ref (child1);
+  else
+    self->child1 = NULL;
+
+  if (child2)
+    self->child2 = gsk_render_node_ref (child2);
+  else
+    self->child2 = NULL;
+
   graphene_rect_init_from_rect (&self->render_node.bounds, bounds);
+
   self->vertex_bytes = g_bytes_ref (vertex_bytes);
   self->fragment_bytes = g_bytes_ref (fragment_bytes);
   self->time = time;
@@ -4504,6 +4579,26 @@ gsk_pixel_shader_node_get_time (GskRenderNode *node)
   g_return_val_if_fail (GSK_IS_RENDER_NODE_TYPE (node, GSK_PIXEL_SHADER_NODE), 0);
 
   return self->time;
+}
+
+GskRenderNode *
+gsk_pixel_shader_node_get_child1 (GskRenderNode *node)
+{
+  GskPixelShaderNode *self = (GskPixelShaderNode *) node;
+
+  g_return_val_if_fail (GSK_IS_RENDER_NODE_TYPE (node, GSK_PIXEL_SHADER_NODE), 0);
+
+  return self->child1;
+}
+
+GskRenderNode *
+gsk_pixel_shader_node_get_child2 (GskRenderNode *node)
+{
+  GskPixelShaderNode *self = (GskPixelShaderNode *) node;
+
+  g_return_val_if_fail (GSK_IS_RENDER_NODE_TYPE (node, GSK_PIXEL_SHADER_NODE), 0);
+
+  return self->child2;
 }
 
 /*** ***/

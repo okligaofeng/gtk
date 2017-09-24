@@ -418,9 +418,8 @@ gsk_vulkan_render_get_custom_pipeline (GskVulkanRender *self,
 {
   GskVulkanPipeline *pipeline;
 
-
   pipeline = gsk_vulkan_custom_pipeline_new (self->vulkan,
-                                             self->pipeline_layout[0],
+                                             self->pipeline_layout[2],
                                              vertex_bytes,
                                              fragment_bytes,
                                              self->render_pass);

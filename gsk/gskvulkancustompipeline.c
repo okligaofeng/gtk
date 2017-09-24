@@ -12,6 +12,8 @@ typedef struct _GskVulkanCustomInstance GskVulkanCustomInstance;
 struct _GskVulkanCustomInstance
 {
   float rect[4];
+  float tex_rect1[4];
+  float tex_rect2[4];
   float time;
 };
 
@@ -36,6 +38,18 @@ gsk_vulkan_custom_pipeline_get_input_state_create_info (GskVulkanPipeline *self)
       },
       {
           .location = 1,
+          .binding = 0,
+          .format = VK_FORMAT_R32G32B32A32_SFLOAT,
+          .offset = G_STRUCT_OFFSET (GskVulkanCustomInstance, tex_rect1),
+      },
+      {
+          .location = 2,
+          .binding = 0,
+          .format = VK_FORMAT_R32G32B32A32_SFLOAT,
+          .offset = G_STRUCT_OFFSET (GskVulkanCustomInstance, tex_rect2),
+      },
+      {
+          .location = 3,
           .binding = 0,
           .format = VK_FORMAT_R32_SFLOAT,
           .offset = G_STRUCT_OFFSET (GskVulkanCustomInstance, time),
@@ -132,15 +146,27 @@ gsk_vulkan_custom_pipeline_count_vertex_data (GskVulkanCustomPipeline *pipeline)
 void
 gsk_vulkan_custom_pipeline_collect_vertex_data (GskVulkanCustomPipeline *pipeline,
                                                 guchar                  *data,
-                                                const graphene_rect_t   *rect,
+                                                const graphene_rect_t   *bounds,
+                                                const graphene_rect_t   *child1_bounds,
+                                                const graphene_rect_t   *child2_bounds,
                                                 float                    time)
 {
   GskVulkanCustomInstance *instance = (GskVulkanCustomInstance *) data;
 
-  instance->rect[0] = rect->origin.x;
-  instance->rect[1] = rect->origin.y;
-  instance->rect[2] = rect->size.width;
-  instance->rect[3] = rect->size.height;
+  instance->rect[0] = bounds->origin.x;
+  instance->rect[1] = bounds->origin.y;
+  instance->rect[2] = bounds->size.width;
+  instance->rect[3] = bounds->size.height;
+
+  instance->tex_rect1[0] = (bounds->origin.x - child1_bounds->origin.x)/child1_bounds->size.width;
+  instance->tex_rect1[1] = (bounds->origin.y - child1_bounds->origin.y)/child1_bounds->size.height;
+  instance->tex_rect1[2] = (bounds->size.width + bounds->origin.x - child1_bounds->origin.x)/child1_bounds->size.width;
+  instance->tex_rect1[3] = (bounds->size.height + bounds->origin.y - child1_bounds->origin.y)/child1_bounds->size.height;
+
+  instance->tex_rect2[0] = (bounds->origin.x - child2_bounds->origin.x)/child2_bounds->size.width;
+  instance->tex_rect2[1] = (bounds->origin.y - child2_bounds->origin.y)/child2_bounds->size.height;
+  instance->tex_rect2[2] = (bounds->size.width + bounds->origin.x - child2_bounds->origin.x)/child2_bounds->size.width;
+  instance->tex_rect2[3] = (bounds->size.height + bounds->origin.y - child2_bounds->origin.y)/child2_bounds->size.height;
 
   instance->time = time;
 }

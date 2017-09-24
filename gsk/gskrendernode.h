@@ -186,10 +186,12 @@ GskRenderNode *         gsk_blur_node_new                       (GskRenderNode *
                                                                  double         radius);
 
 GDK_AVAILABLE_IN_3_92
-GskRenderNode *         gsk_pixel_shader_node_new               (const graphene_rect_t *bounds,
-                                                                 GBytes                *vertex_bytes,
-                                                                 GBytes                *fragement_bytes,
-                                                                 float                  time);
+GskRenderNode *         gsk_pixel_shader_node_new               (const graphene_rect_t  *bounds,
+                                                                 GskRenderNode          *child1,
+                                                                 GskRenderNode          *child2,
+                                                                 GBytes                 *vertex_bytes,
+                                                                 GBytes                 *fragement_bytes,
+                                                                 float                   time);
 
 GDK_AVAILABLE_IN_3_90
 void                    gsk_render_node_set_scaling_filters     (GskRenderNode *node,

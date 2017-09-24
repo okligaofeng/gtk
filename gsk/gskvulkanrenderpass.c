@@ -787,6 +787,30 @@ gsk_vulkan_render_pass_upload (GskVulkanRenderPass  *self,
           }
           break;
 
+        case GSK_VULKAN_OP_PIXEL_SHADER:
+          {
+            GskRenderNode *child1 = gsk_pixel_shader_node_get_child1 (op->render.node);
+            GskRenderNode *child2 = gsk_pixel_shader_node_get_child2 (op->render.node);
+
+            if (child1)
+              op->render.source = gsk_vulkan_render_pass_get_node_as_texture (self,
+                                                                              render,
+                                                                              uploader,
+                                                                              child1,
+                                                                              &child1->bounds);
+            else
+              op->render.source = NULL;
+            if (child2)
+              op->render.source2 = gsk_vulkan_render_pass_get_node_as_texture (self,
+                                                                               render,
+                                                                               uploader,
+                                                                               child2,
+                                                                               &child2->bounds);
+            else
+              op->render.source2 = NULL;
+          }
+          break;
+
         default:
           g_assert_not_reached ();
         case GSK_VULKAN_OP_COLOR:
@@ -795,7 +819,6 @@ gsk_vulkan_render_pass_upload (GskVulkanRenderPass  *self,
         case GSK_VULKAN_OP_BORDER:
         case GSK_VULKAN_OP_INSET_SHADOW:
         case GSK_VULKAN_OP_OUTSET_SHADOW:
-        case GSK_VULKAN_OP_PIXEL_SHADER:
           break;
         }
     }
@@ -1107,10 +1130,15 @@ gsk_vulkan_render_pass_collect_vertex_data (GskVulkanRenderPass *self,
 
         case GSK_VULKAN_OP_PIXEL_SHADER:
           {
+            GskRenderNode *child1 = gsk_pixel_shader_node_get_child1 (op->render.node);
+            GskRenderNode *child2 = gsk_pixel_shader_node_get_child2 (op->render.node);
+
             op->render.vertex_offset = offset + n_bytes;
             gsk_vulkan_custom_pipeline_collect_vertex_data (GSK_VULKAN_CUSTOM_PIPELINE (op->render.pipeline),
                                                             data + n_bytes + offset,
                                                             &op->render.node->bounds,
+                                                            child1 ? &child1->bounds : &GRAPHENE_RECT_INIT(0,0,0,0),
+                                                            child2 ? &child2->bounds : &GRAPHENE_RECT_INIT(0,0,0,0),
                                                             gsk_pixel_shader_node_get_time (op->render.node));
             n_bytes += op->render.vertex_count;
           }
@@ -1152,6 +1180,13 @@ gsk_vulkan_render_pass_reserve_descriptor_sets (GskVulkanRenderPass *self,
           op->render.descriptor_set_index = gsk_vulkan_render_reserve_descriptor_set (render, op->render.source);
           break;
 
+        case GSK_VULKAN_OP_PIXEL_SHADER:
+          if (op->render.source)
+            op->render.descriptor_set_index = gsk_vulkan_render_reserve_descriptor_set (render, op->render.source);
+          if (op->render.source2)
+            op->render.descriptor_set_index2 = gsk_vulkan_render_reserve_descriptor_set (render, op->render.source2);
+          break;
+
         case GSK_VULKAN_OP_TEXT:
         case GSK_VULKAN_OP_COLOR_TEXT:
           op->text.descriptor_set_index = gsk_vulkan_render_reserve_descriptor_set (render, op->text.source);
@@ -1171,7 +1206,6 @@ gsk_vulkan_render_pass_reserve_descriptor_sets (GskVulkanRenderPass *self,
         case GSK_VULKAN_OP_BORDER:
         case GSK_VULKAN_OP_INSET_SHADOW:
         case GSK_VULKAN_OP_OUTSET_SHADOW:
-        case GSK_VULKAN_OP_PIXEL_SHADER:
           break;
         }
     }
@@ -1551,6 +1585,23 @@ gsk_vulkan_render_pass_draw (GskVulkanRenderPass     *self,
                                       (VkDeviceSize[1]) { op->render.vertex_offset });
               current_draw_index = 0;
             }
+
+          {
+            VkDescriptorSet ds[2];
+            gsize size = 0;
+            if (op->render.source != NULL)
+              ds[size++] = gsk_vulkan_render_get_descriptor_set (render, op->render.descriptor_set_index);
+            if (op->render.source2 != NULL)
+              ds[size++] = gsk_vulkan_render_get_descriptor_set (render, op->render.descriptor_set_index2);
+            vkCmdBindDescriptorSets (command_buffer,
+                                     VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                     gsk_vulkan_pipeline_get_pipeline_layout (current_pipeline),
+                                     0,
+                                     size,
+                                     ds,
+                                     0,
+                                     NULL);
+          }
 
           current_draw_index += gsk_vulkan_custom_pipeline_draw (GSK_VULKAN_CUSTOM_PIPELINE (current_pipeline),
                                                                  command_buffer,

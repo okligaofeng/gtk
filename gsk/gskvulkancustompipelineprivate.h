@@ -23,6 +23,8 @@ gsize                   gsk_vulkan_custom_pipeline_count_vertex_data     (GskVul
 void                    gsk_vulkan_custom_pipeline_collect_vertex_data   (GskVulkanCustomPipeline   *pipeline,
                                                                           guchar                  *data,
                                                                           const graphene_rect_t   *rect,
+                                                                          const graphene_rect_t   *child1_bounds,
+                                                                          const graphene_rect_t   *child2_bounds,
                                                                           float                    time);
 gsize                   gsk_vulkan_custom_pipeline_draw                  (GskVulkanCustomPipeline   *pipeline,
                                                                           VkCommandBuffer          command_buffer,
