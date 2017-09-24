@@ -282,7 +282,7 @@ void              gtk_widget_render                        (GtkWidget           
                                                             GdkWindow            *window,
                                                             const cairo_region_t *region);
 
-
+GDK_AVAILABLE_IN_ALL
 void              gtk_widget_snapshot                      (GtkWidget            *widget,
                                                             GtkSnapshot          *snapshot);
 void              gtk_widget_adjust_size_request           (GtkWidget      *widget,
