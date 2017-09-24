@@ -34,7 +34,6 @@
             <property name="expand">1</property>
             <child>
               <object class="GtkTextView" id="text">
-                <property name="buffer">buffer</property>
                 <property name="top-margin">10</property>
                 <property name="bottom-margin">10</property>
                 <property name="left-margin">10</property>
@@ -45,27 +44,5 @@
         </child>
       </object>
     </child>
-  </object>
-  <object class="GtkTextBuffer" id="buffer">
-    <property name="text">#version 420 core
-
-layout(location = 0) in vec2 iPos;
-layout(location = 1) in float iTime;
-layout(location = 2) in vec2 iResolution;
-
-layout(location = 0) out vec4 color;
-
-void
-mainImage (out vec4 fragColor, in vec2 fragCoord)
-{
-  vec2 uv = fragCoord.xy / iResolution.xy;
-  fragColor = vec4(uv,0.5+0.5*sin(iTime),1.0);
-}
-
-void main()
-{
-  mainImage (color, iPos);
-}
-</property>
   </object>
 </interface>

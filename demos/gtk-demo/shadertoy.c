@@ -35,6 +35,8 @@ gtk_shadertoy_snapshot (GtkWidget   *widget,
 {
   GtkShadertoy *self = GTK_SHADERTOY (widget);
   GdkRGBA white = { 1, 1, 1, 1 };
+  GdkRGBA purple = { 1, 0, 1, 1 };
+  GdkRGBA green = { 0, 1, 0, 1 };
   GtkAllocation alloc;
   graphene_rect_t bounds;
   int offset_x, offset_y;
@@ -48,13 +50,19 @@ gtk_shadertoy_snapshot (GtkWidget   *widget,
 
   if (self->fragment_shader)
     {
+      GskRenderNode *node, *child1, *child2;
+
       gtk_snapshot_get_offset (snapshot, &offset_x, &offset_y);
       bounds.origin.x = offset_x;
       bounds.origin.y = offset_y;
-      GskRenderNode *node = gsk_pixel_shader_node_new (&bounds,
-                                                       self->vertex_shader,
-                                                       self->fragment_shader,
-                                                       time);
+
+      child1 = gsk_color_node_new (&purple, &GRAPHENE_RECT_INIT (offset_x + 20, offset_y + 20, 80, 40));
+      child2 = gsk_color_node_new (&green, &GRAPHENE_RECT_INIT (offset_x + 40, offset_y + 80, 40, 80));
+      node = gsk_pixel_shader_node_new (&bounds,
+                                        child1, child2,
+                                        self->vertex_shader,
+                                        self->fragment_shader,
+                                        time);
       gsk_render_node_set_name (node, "shader");
       gtk_snapshot_append_node (snapshot, node);
     }
@@ -250,11 +258,15 @@ static const char *vert_text =
 "} push;\n"
 "\n"
 "layout(location = 0) in vec4 inRect;\n"
-"layout(location = 1) in float inTime;\n"
+"layout(location = 1) in vec4 inTexRect1;\n"
+"layout(location = 2) in vec4 inTexRect2;\n"
+"layout(location = 3) in float inTime;\n"
 "\n"
 "layout(location = 0) out vec2 outPos;\n"
-"layout(location = 1) out float outTime;\n"
-"layout(location = 2) out vec2 outResolution;\n"
+"layout(location = 1) out vec2 outTexCoord1;\n"
+"layout(location = 2) out vec2 outTexCoord2;\n"
+"layout(location = 3) out float outTime;\n"
+"layout(location = 4) out vec2 outResolution;\n"
 "\n"
 "out gl_PerVertex {\n"
 "  vec4 gl_Position;\n"
@@ -271,12 +283,49 @@ static const char *vert_text =
 "\n"
 "void main() {\n"
 "  vec4 rect = clip (inRect);\n"
-"\n"
 "  vec2 pos = rect.xy + rect.zw * offsets[gl_VertexIndex];\n"
 "  gl_Position = push.mvp * vec4 (pos, 0.0, 1.0);\n"
+"\n"
 "  outPos = pos;\n"
+"\n"
+"  vec4 texrect = vec4((rect.xy - inRect.xy) / inRect.zw,\n"
+"                      rect.zw / inRect.zw);\n"
+"  vec4 texrect1 = vec4(inTexRect1.xy + inTexRect1.zw * texrect.xy,\n"
+"                      inTexRect1.zw * texrect.zw);\n"
+"  outTexCoord1 = texrect1.xy + texrect1.zw * offsets[gl_VertexIndex];\n"
+"\n"
+"  vec4 texrect2 = vec4(inTexRect2.xy + inTexRect2.zw * texrect.xy,\n"
+"                      inTexRect2.zw * texrect.zw);\n"
+"  outTexCoord2 = texrect2.xy + texrect2.zw * offsets[gl_VertexIndex];\n"
+"\n"
 "  outTime = inTime;\n"
 "  outResolution = inRect.zw;\n"
+"}";
+
+static const char *frag_text =
+"#version 420 core\n"
+"\n"
+"layout(location = 0) in vec2 iPos;\n"
+"layout(location = 1) in vec2 iTexCoord1;\n"
+"layout(location = 2) in vec2 iTexCoord2;\n"
+"layout(location = 3) in float iTime;\n"
+"layout(location = 4) in vec2 iResolution;\n"
+"\n"
+"layout(set = 0, binding = 0) uniform sampler2D iTexture1;\n"
+"layout(set = 1, binding = 0) uniform sampler2D iTexture2;\n"
+"\n"
+"layout(location = 0) out vec4 color;\n"
+"\n"
+"void\n"
+"mainImage (out vec4 fragColor, in vec2 fragCoord)\n"
+"{\n"
+"  vec2 uv = fragCoord.xy / iResolution.xy;\n"
+"  fragColor = vec4(uv,0.5+0.5*sin(iTime), 1.0)*texture(iTexture1,iTexCoord1);\n"
+"}\n"
+"\n"
+"void main()\n"
+"{\n"
+"  mainImage (color, iPos);\n"
 "}";
 
 static void
@@ -401,6 +450,7 @@ do_shadertoy (GtkWidget *do_widget)
       GtkWidget *rewind;
       GtkWidget *play;
       GtkWidget *time;
+      GtkTextBuffer *buffer;
 
       builder = gtk_builder_new_from_resource ("/shadertoy/shadertoy.ui");
 
@@ -418,6 +468,8 @@ do_shadertoy (GtkWidget *do_widget)
 
       toy = gtk_shadertoy_new ();
       setup_vertex_shader ();
+      buffer = gtk_text_view_get_buffer (GTK_TEXT_VIEW (textview));
+      gtk_text_buffer_set_text (buffer, frag_text, -1);
 
       gtk_widget_set_hexpand (toy, TRUE);
       gtk_widget_set_vexpand (toy, TRUE);
