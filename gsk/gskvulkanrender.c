@@ -18,6 +18,7 @@
 #include "gskvulkancolorpipelineprivate.h"
 #include "gskvulkancolortextpipelineprivate.h"
 #include "gskvulkancrossfadepipelineprivate.h"
+#include "gskvulkancustompipelineprivate.h"
 #include "gskvulkaneffectpipelineprivate.h"
 #include "gskvulkanlineargradientpipelineprivate.h"
 #include "gskvulkantextpipelineprivate.h"
@@ -59,6 +60,7 @@ struct _GskVulkanRender
 
   GSList *render_passes;
   GSList *cleanup_images;
+  GSList *cleanup_pipelines;
 };
 
 static void
@@ -409,6 +411,25 @@ gsk_vulkan_render_get_pipeline (GskVulkanRender       *self,
   return self->pipelines[type];
 }
 
+GskVulkanPipeline *
+gsk_vulkan_render_get_custom_pipeline (GskVulkanRender *self,
+                                       GBytes          *vertex_bytes,
+                                       GBytes          *fragment_bytes)
+{
+  GskVulkanPipeline *pipeline;
+
+
+  pipeline = gsk_vulkan_custom_pipeline_new (self->vulkan,
+                                             self->pipeline_layout[0],
+                                             vertex_bytes,
+                                             fragment_bytes,
+                                             self->render_pass);
+
+  self->cleanup_pipelines = g_slist_prepend (self->cleanup_pipelines, pipeline);
+
+  return pipeline;
+}
+
 VkDescriptorSet
 gsk_vulkan_render_get_descriptor_set (GskVulkanRender *self,
                                       gsize            id)
@@ -645,6 +666,8 @@ gsk_vulkan_render_cleanup (GskVulkanRender *self)
   self->render_passes = NULL;
   g_slist_free_full (self->cleanup_images, g_object_unref);
   self->cleanup_images = NULL;
+  g_slist_free_full (self->cleanup_pipelines, g_object_unref);
+  self->cleanup_pipelines = NULL;
 
   g_clear_pointer (&self->clip, cairo_region_destroy);
   g_clear_object (&self->target);

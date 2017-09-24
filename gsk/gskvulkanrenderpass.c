@@ -15,6 +15,7 @@
 #include "gskvulkancolorpipelineprivate.h"
 #include "gskvulkancolortextpipelineprivate.h"
 #include "gskvulkancrossfadepipelineprivate.h"
+#include "gskvulkancustompipelineprivate.h"
 #include "gskvulkaneffectpipelineprivate.h"
 #include "gskvulkanlineargradientpipelineprivate.h"
 #include "gskvulkantextpipelineprivate.h"
@@ -47,6 +48,7 @@ typedef enum {
   GSK_VULKAN_OP_OUTSET_SHADOW,
   GSK_VULKAN_OP_CROSS_FADE,
   GSK_VULKAN_OP_BLEND_MODE,
+  GSK_VULKAN_OP_PIXEL_SHADER,
   /* GskVulkanOpText */
   GSK_VULKAN_OP_TEXT,
   GSK_VULKAN_OP_COLOR_TEXT,
@@ -171,6 +173,14 @@ gsk_vulkan_render_pass_add_node (GskVulkanRenderPass           *self,
     default:
       FALLBACK ("Unsupported node '%s'\n", node->node_class->type_name);
 
+    case GSK_PIXEL_SHADER_NODE:
+      op.type = GSK_VULKAN_OP_PIXEL_SHADER;
+      op.render.pipeline = gsk_vulkan_render_get_custom_pipeline (render,
+                                                                  gsk_pixel_shader_node_get_vertex_bytes (node),
+                                                                  gsk_pixel_shader_node_get_fragment_bytes (node));
+      g_array_append_val (self->render_ops, op);
+      return;
+
     case GSK_BLEND_NODE:
       if (gsk_vulkan_clip_contains_rect (&constants->clip, &node->bounds))
         pipeline_type = GSK_VULKAN_PIPELINE_BLEND_MODE;
@@ -183,7 +193,7 @@ gsk_vulkan_render_pass_add_node (GskVulkanRenderPass           *self,
       op.type = GSK_VULKAN_OP_BLEND_MODE;
       op.render.pipeline = gsk_vulkan_render_get_pipeline (render, pipeline_type);
       g_array_append_val (self->render_ops, op);
-       return;
+      return;
 
     case GSK_CROSS_FADE_NODE:
       if (gsk_vulkan_clip_contains_rect (&constants->clip, &node->bounds))
@@ -785,6 +795,7 @@ gsk_vulkan_render_pass_upload (GskVulkanRenderPass  *self,
         case GSK_VULKAN_OP_BORDER:
         case GSK_VULKAN_OP_INSET_SHADOW:
         case GSK_VULKAN_OP_OUTSET_SHADOW:
+        case GSK_VULKAN_OP_PIXEL_SHADER:
           break;
         }
     }
@@ -864,6 +875,11 @@ gsk_vulkan_render_pass_count_vertex_data (GskVulkanRenderPass *self)
 
         case GSK_VULKAN_OP_BLEND_MODE:
           op->render.vertex_count = gsk_vulkan_blend_mode_pipeline_count_vertex_data (GSK_VULKAN_BLEND_MODE_PIPELINE (op->render.pipeline));
+          n_bytes += op->render.vertex_count;
+          break;
+
+        case GSK_VULKAN_OP_PIXEL_SHADER:
+          op->render.vertex_count = gsk_vulkan_custom_pipeline_count_vertex_data (GSK_VULKAN_CUSTOM_PIPELINE (op->render.pipeline));
           n_bytes += op->render.vertex_count;
           break;
 
@@ -1089,6 +1105,17 @@ gsk_vulkan_render_pass_collect_vertex_data (GskVulkanRenderPass *self,
           }
           break;
 
+        case GSK_VULKAN_OP_PIXEL_SHADER:
+          {
+            op->render.vertex_offset = offset + n_bytes;
+            gsk_vulkan_custom_pipeline_collect_vertex_data (GSK_VULKAN_CUSTOM_PIPELINE (op->render.pipeline),
+                                                            data + n_bytes + offset,
+                                                            &op->render.node->bounds,
+                                                            gsk_pixel_shader_node_get_time (op->render.node));
+            n_bytes += op->render.vertex_count;
+          }
+          break;
+
         default:
           g_assert_not_reached ();
         case GSK_VULKAN_OP_PUSH_VERTEX_CONSTANTS:
@@ -1144,6 +1171,7 @@ gsk_vulkan_render_pass_reserve_descriptor_sets (GskVulkanRenderPass *self,
         case GSK_VULKAN_OP_BORDER:
         case GSK_VULKAN_OP_INSET_SHADOW:
         case GSK_VULKAN_OP_OUTSET_SHADOW:
+        case GSK_VULKAN_OP_PIXEL_SHADER:
           break;
         }
     }
@@ -1505,6 +1533,28 @@ gsk_vulkan_render_pass_draw (GskVulkanRenderPass     *self,
           current_draw_index += gsk_vulkan_blend_mode_pipeline_draw (GSK_VULKAN_BLEND_MODE_PIPELINE (current_pipeline),
                                                                      command_buffer,
                                                                      current_draw_index, 1);
+          break;
+
+        case GSK_VULKAN_OP_PIXEL_SHADER:
+          if (current_pipeline != op->render.pipeline)
+            {
+              current_pipeline = op->render.pipeline;
+              vkCmdBindPipeline (command_buffer,
+                                 VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                 gsk_vulkan_pipeline_get_pipeline (current_pipeline));
+              vkCmdBindVertexBuffers (command_buffer,
+                                      0,
+                                      1,
+                                      (VkBuffer[1]) {
+                                          gsk_vulkan_buffer_get_buffer (vertex_buffer)
+                                      },
+                                      (VkDeviceSize[1]) { op->render.vertex_offset });
+              current_draw_index = 0;
+            }
+
+          current_draw_index += gsk_vulkan_custom_pipeline_draw (GSK_VULKAN_CUSTOM_PIPELINE (current_pipeline),
+                                                                 command_buffer,
+                                                                 current_draw_index, 1);
           break;
 
         default:
